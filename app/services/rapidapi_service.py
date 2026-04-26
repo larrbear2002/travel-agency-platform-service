@@ -90,6 +90,22 @@ class RapidApiService:
             return_date=return_date,
         )
 
+    def get_flight_price_calendar(
+        self,
+        from_id: str,
+        to_id: str,
+        year_month: str,
+        cabin_class: str = "ECONOMY",
+        currency: str = "USD",
+    ):
+        return self.rapidapi.get_flight_price_calendar(
+            from_id=from_id,
+            to_id=to_id,
+            year_month=year_month,
+            cabin_class=cabin_class,
+            currency=currency,
+        )
+
     def search_rental_cars(
         self,
         pick_up_date: str,

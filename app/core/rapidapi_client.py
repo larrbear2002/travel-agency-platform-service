@@ -157,6 +157,26 @@ class RapidApiClient:
             params=querystring,
         )
 
+    def get_flight_price_calendar(
+        self,
+        from_id: str,
+        to_id: str,
+        year_month: str,
+        cabin_class: str = "ECONOMY",
+        currency: str = "USD",
+    ):
+        return self._get(
+            host="booking-com.p.rapidapi.com",
+            path="v1/flights/getPriceCalendar",
+            params={
+                "fromId": from_id,
+                "toId": to_id,
+                "yearMonth": year_month,
+                "cabinClass": cabin_class,
+                "currency": currency,
+            },
+        )
+
     def _get(self, host: str, path: str, params: dict[str, str]):
         request = Request(
             f"https://{host}/{path}?{urlencode(params)}",

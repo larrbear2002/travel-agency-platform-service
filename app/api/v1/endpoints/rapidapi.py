@@ -147,3 +147,29 @@ async def search_flights(
         _check_and_trigger_alerts(db, from_code, to_code, cabin_class, min_price)
 
     return result
+
+
+@router.get("/flights/price-calendar", tags=["Price Intelligence"])
+async def get_flight_price_calendar(
+    from_id: str = Query(..., description="Origin code, e.g. LAX.AIRPORT"),
+    to_id: str = Query(..., description="Destination code, e.g. JFK.AIRPORT"),
+    year_month: str = Query(..., description="Format: YYYY-MM, e.g. 2026-06"),
+    cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
+    currency: str = Query("USD"),
+    service: RapidApiService = Depends(get_rapidapi_service),
+):
+    """
+    Returns the cheapest available price for every day in the given month for a route.
+    Use this to render a price trend chart (US.1 / AC2) — data comes live from
+    Booking.com, no prior searches required.
+    """
+    try:
+        return service.get_flight_price_calendar(
+            from_id=from_id,
+            to_id=to_id,
+            year_month=year_month,
+            cabin_class=cabin_class,
+            currency=currency,
+        )
+    except RapidApiError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
