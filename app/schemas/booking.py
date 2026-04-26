@@ -8,6 +8,45 @@ from typing import Optional
 from pydantic import BaseModel, EmailStr, Field
 
 
+# ---- User ----
+
+class UserCreate(BaseModel):
+    First_Name: str
+    Last_Name: str
+    Email: EmailStr
+    Phone_Number: Optional[str] = None
+
+
+class UserResponse(UserCreate):
+    User_ID: int
+
+    class Config:
+        from_attributes = True
+
+
+# ---- Attraction Reservation ----
+
+class AttractionReservationCreate(BaseModel):
+    Attraction_Name: str
+    Visit_Date: date
+    Ticket_Type: Optional[str] = None
+    Rate: Optional[float] = None
+
+
+class AttractionReservationUpdate(BaseModel):
+    Attraction_Name: Optional[str] = None
+    Visit_Date: Optional[date] = None
+    Ticket_Type: Optional[str] = None
+    Rate: Optional[float] = None
+
+
+class AttractionReservationResponse(AttractionReservationCreate):
+    Reservation_No: int
+
+    class Config:
+        from_attributes = True
+
+
 class HotelReservationCreate(BaseModel):
     Hotel_Code: int
     Check_In_Date: date
@@ -75,6 +114,7 @@ class BookingBase(BaseModel):
 class BookingCreate(BookingBase):
     hotel_reservations: list[HotelReservationCreate] = Field(default_factory=list)
     flight_reservations: list[FlightReservationCreate] = Field(default_factory=list)
+    attraction_reservations: list[AttractionReservationCreate] = Field(default_factory=list)
 
 # Schema used when UPDATING an existing Booking (Request Body)
 class BookingUpdate(BaseModel):
@@ -90,17 +130,9 @@ class BookingResponse(BookingBase):
         # Crucial for SQLAlchemy compatibility
         from_attributes = True
 
-# Helper schema to show User details alongside Bookings
-class UserResponse(BaseModel):
-    First_Name: str
-    Last_Name: str
-    Email: EmailStr
-
-    class Config:
-        from_attributes = True
-
 # Advanced Response schema including User information
 class BookingDetailResponse(BookingResponse):
     user: UserResponse
     hotel_reservations: list[HotelReservationResponse] = Field(default_factory=list)
     flight_reservations: list[FlightReservationResponse] = Field(default_factory=list)
+    attraction_reservations: list[AttractionReservationResponse] = Field(default_factory=list)

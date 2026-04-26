@@ -3,13 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.core.rapidapi_client import RapidApiError, get_rapidapi_client
 from app.services.rapidapi_service import RapidApiService
 
-router = APIRouter(prefix="", tags=["rapidapi"])
+router = APIRouter()
 
 def get_rapidapi_service() -> RapidApiService:
     return RapidApiService(get_rapidapi_client())
 
 
-@router.get("/attractions/search")
+@router.get("/attractions/search", tags=["Search - Attractions"])
 async def search_attractions(
     start_date: str = Query(..., description="Format: YYYY-MM-DD"),
     end_date: str = Query(..., description="Format: YYYY-MM-DD"),
@@ -34,7 +34,7 @@ async def search_attractions(
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
-@router.get("/hotels/search")
+@router.get("/hotels/search", tags=["Search - Hotels"])
 async def search_hotels(
     page_number: int = Query(0, ge=0),
     dest_type: str = Query("city"),
@@ -75,7 +75,7 @@ async def search_hotels(
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
-@router.get("/flights/search")
+@router.get("/flights/search", tags=["Search - Flights"])
 async def search_flights(
     depart_date: str = Query(..., description="Format: YYYY-MM-DD"),
     from_code: str = Query(..., description="Example: ONT.AIRPORT"),
