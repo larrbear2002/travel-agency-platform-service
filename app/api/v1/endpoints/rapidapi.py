@@ -161,8 +161,8 @@ async def get_flight_price_calendar(
 ):
     """
     Returns the cheapest price for a sample of dates across the requested month.
-    Searches every 7 days (4 data points) using the live Booking.com flight search,
-    then records each price as a snapshot for future trend history (US.1 / AC2).
+    Searches the 1st and 15th of the month (2 data points) using the live
+    Booking.com flight search, then records each price as a snapshot.
     """
     import calendar
     from datetime import date
@@ -173,7 +173,7 @@ async def get_flight_price_calendar(
         raise HTTPException(status_code=422, detail="year_month must be in YYYY-MM format, e.g. 2026-06")
 
     _, days_in_month = calendar.monthrange(year, month)
-    sample_days = range(1, days_in_month + 1, 7)  # 1, 8, 15, 22, 29
+    sample_days = [1, min(15, days_in_month)]
 
     results = []
     for day in sample_days:
@@ -214,4 +214,102 @@ async def get_flight_price_calendar(
         "currency": currency,
         "year_month": year_month,
         "prices": results,
+    }
+
+
+@router.get("/flights/price-forecast", tags=["Price Intelligence"])
+async def get_flight_price_forecast(
+    from_id: str = Query(..., description="Origin code, e.g. SFO.AIRPORT"),
+    to_id: str = Query(..., description="Destination code, e.g. CDG.AIRPORT"),
+    months: int = Query(6, ge=1, le=6, description="How many months ahead to scan (max 6)"),
+    cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
+    currency: str = Query("USD"),
+    service: RapidApiService = Depends(get_rapidapi_service),
+    db: Session = Depends(get_db),
+):
+    """
+    **Early-Bird Planner endpoint.**
+
+    Fetches the cheapest flight price on the 1st of each month for the next
+    `months` months, saves every price as a snapshot, then immediately runs a
+    deal assessment so the user knows whether prices are trending up or down
+    and whether now is a good time to book.
+
+    Designed for users planning trips 6 months in advance (US.1 / US.3 / AC2 / AC7-8).
+    Note: makes one live API call per month — allow a few seconds to respond.
+    """
+    import calendar
+    from datetime import date, timedelta
+    from app.api.v1.endpoints.price_intelligence import _compute_label
+
+    today = date.today()
+    monthly_prices = []
+
+    for i in range(months):
+        # advance month by month from today
+        month_offset = today.month + i
+        year = today.year + (month_offset - 1) // 12
+        month = ((month_offset - 1) % 12) + 1
+        depart_date = date(year, month, 1).isoformat()
+
+        try:
+            result = service.search_flights(
+                depart_date=depart_date,
+                from_code=from_id,
+                to_code=to_id,
+                adults=1,
+                cabin_class=cabin_class,
+                currency=currency,
+                locale="en-gb",
+                page_number=0,
+                order_by="BEST",
+                flight_type="ONEWAY",
+            )
+            min_price = _extract_min_price(result)
+            if min_price is not None:
+                db.add(PriceSnapshot(
+                    from_code=from_id,
+                    to_code=to_id,
+                    depart_date=depart_date,
+                    cabin_class=cabin_class,
+                    price=min_price,
+                    recorded_at=datetime.utcnow(),
+                ))
+                _check_and_trigger_alerts(db, from_id, to_id, cabin_class, min_price)
+            monthly_prices.append({"month": f"{year}-{month:02d}", "cheapest_price": min_price})
+        except RapidApiError:
+            monthly_prices.append({"month": f"{year}-{month:02d}", "cheapest_price": None})
+
+    db.commit()
+
+    # Deal assessment across the 6-month window
+    valid_prices = [p["cheapest_price"] for p in monthly_prices if p["cheapest_price"] is not None]
+    deal_summary = None
+    if len(valid_prices) >= 2:
+        average = round(sum(valid_prices) / len(valid_prices), 2)
+        lowest = min(valid_prices)
+        highest = max(valid_prices)
+        best_month = next(p["month"] for p in monthly_prices if p["cheapest_price"] == lowest)
+        label = _compute_label(lowest, average)
+        deal_summary = {
+            "average_price": average,
+            "lowest_price": lowest,
+            "highest_price": highest,
+            "best_month_to_book": best_month,
+            "label": label,
+            "advice": (
+                f"The cheapest month is {best_month} at ${lowest:.2f}. "
+                f"The 6-month average is ${average:.2f}. "
+                f"Booking in {best_month} is a '{label}'."
+            ),
+        }
+
+    return {
+        "from_id": from_id,
+        "to_id": to_id,
+        "cabin_class": cabin_class,
+        "currency": currency,
+        "months_scanned": months,
+        "monthly_prices": monthly_prices,
+        "deal_summary": deal_summary,
     }
