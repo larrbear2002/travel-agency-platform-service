@@ -8,3 +8,18 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables (contains API keys)
+.env
+
+# Database files
+*.db
+
+# Claude Code internals
+.claude/
+
+# SQLite tools
+sqlite3.exe
+sqlite3_analyzer.exe
+sqlite3_rsync.exe
+sqldiff.exe
