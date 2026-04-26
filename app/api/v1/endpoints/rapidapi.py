@@ -1,15 +1,36 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session
+
+from app.api.v1.endpoints.price_intelligence import _check_and_trigger_alerts
+from app.core.database import get_db
 from app.core.rapidapi_client import RapidApiError, get_rapidapi_client
+from app.models.price_intelligence import PriceSnapshot
 from app.services.rapidapi_service import RapidApiService
 
-router = APIRouter(prefix="", tags=["rapidapi"])
+router = APIRouter()
 
 def get_rapidapi_service() -> RapidApiService:
     return RapidApiService(get_rapidapi_client())
 
 
-@router.get("/attractions/search")
+def _extract_min_price(data: object) -> float | None:
+    """Best-effort extraction of the lowest price from a booking.com flight response."""
+    prices: list[float] = []
+    try:
+        offers = data.get("flightOffers") or data.get("data", {}).get("flightOffers", [])
+        for offer in offers or []:
+            pb = offer.get("priceBreakdown", {})
+            total = pb.get("total", {})
+            if "units" in total:
+                prices.append(float(total["units"]) + float(total.get("nanos", 0)) / 1e9)
+    except Exception:
+        pass
+    return min(prices) if prices else None
+
+
+@router.get("/attractions/search", tags=["Search - Attractions"])
 async def search_attractions(
     start_date: str = Query(..., description="Format: YYYY-MM-DD"),
     end_date: str = Query(..., description="Format: YYYY-MM-DD"),
@@ -34,7 +55,7 @@ async def search_attractions(
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
-@router.get("/hotels/search")
+@router.get("/hotels/search", tags=["Search - Hotels"])
 async def search_hotels(
     page_number: int = Query(0, ge=0),
     dest_type: str = Query("city"),
@@ -75,7 +96,7 @@ async def search_hotels(
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
 
 
-@router.get("/flights/search")
+@router.get("/flights/search", tags=["Search - Flights"])
 async def search_flights(
     depart_date: str = Query(..., description="Format: YYYY-MM-DD"),
     from_code: str = Query(..., description="Example: ONT.AIRPORT"),
@@ -90,9 +111,10 @@ async def search_flights(
     children_ages: str | None = Query(None, description="Comma-separated ages, e.g. 5,0"),
     return_date: str | None = Query(None, description="Format: YYYY-MM-DD"),
     service: RapidApiService = Depends(get_rapidapi_service),
+    db: Session = Depends(get_db),
 ):
     try:
-        return service.search_flights(
+        result = service.search_flights(
             depart_date=depart_date,
             from_code=from_code,
             to_code=to_code,
@@ -108,3 +130,20 @@ async def search_flights(
         )
     except RapidApiError as error:
         raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+    # Auto-record the lowest observed price for trend history (US.1 / AC2)
+    # and check if any price alerts should fire (US.2 / AC5).
+    min_price = _extract_min_price(result)
+    if min_price is not None:
+        db.add(PriceSnapshot(
+            from_code=from_code,
+            to_code=to_code,
+            depart_date=depart_date,
+            cabin_class=cabin_class,
+            price=min_price,
+            recorded_at=datetime.utcnow(),
+        ))
+        db.commit()
+        _check_and_trigger_alerts(db, from_code, to_code, cabin_class, min_price)
+
+    return result
