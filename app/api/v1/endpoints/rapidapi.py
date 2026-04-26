@@ -151,8 +151,8 @@ async def search_flights(
 
 @router.get("/flights/price-calendar", tags=["Price Intelligence"])
 async def get_flight_price_calendar(
-    from_id: str = Query(..., description="Origin code, e.g. LAX.AIRPORT"),
-    to_id: str = Query(..., description="Destination code, e.g. JFK.AIRPORT"),
+    from_code: str = Query(..., description="Origin code, e.g. LAX.AIRPORT"),
+    to_code: str = Query(..., description="Destination code, e.g. JFK.AIRPORT"),
     year_month: str = Query(..., description="Format: YYYY-MM, e.g. 2026-06"),
     cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
     currency: str = Query("USD"),
@@ -181,8 +181,8 @@ async def get_flight_price_calendar(
         try:
             result = service.search_flights(
                 depart_date=depart_date,
-                from_code=from_id,
-                to_code=to_id,
+                from_code=from_code,
+                to_code=to_code,
                 adults=1,
                 cabin_class=cabin_class,
                 currency=currency,
@@ -194,22 +194,22 @@ async def get_flight_price_calendar(
             min_price = _extract_min_price(result)
             if min_price is not None:
                 db.add(PriceSnapshot(
-                    from_code=from_id,
-                    to_code=to_id,
+                    from_code=from_code,
+                    to_code=to_code,
                     depart_date=depart_date,
                     cabin_class=cabin_class,
                     price=min_price,
                     recorded_at=datetime.utcnow(),
                 ))
-                _check_and_trigger_alerts(db, from_id, to_id, cabin_class, min_price)
+                _check_and_trigger_alerts(db, from_code, to_code, cabin_class, min_price)
             results.append({"date": depart_date, "price": min_price})
         except RapidApiError:
             results.append({"date": depart_date, "price": None})
 
     db.commit()
     return {
-        "from_id": from_id,
-        "to_id": to_id,
+        "from_code": from_code,
+        "to_code": to_code,
         "cabin_class": cabin_class,
         "currency": currency,
         "year_month": year_month,
@@ -219,8 +219,8 @@ async def get_flight_price_calendar(
 
 @router.get("/flights/price-forecast", tags=["Price Intelligence"])
 async def get_flight_price_forecast(
-    from_id: str = Query(..., description="Origin code, e.g. SFO.AIRPORT"),
-    to_id: str = Query(..., description="Destination code, e.g. CDG.AIRPORT"),
+    from_code: str = Query(..., description="Origin code, e.g. SFO.AIRPORT"),
+    to_code: str = Query(..., description="Destination code, e.g. CDG.AIRPORT"),
     months: int = Query(6, ge=1, le=6, description="How many months ahead to scan (max 6)"),
     cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
     currency: str = Query("USD"),
@@ -238,15 +238,13 @@ async def get_flight_price_forecast(
     Designed for users planning trips 6 months in advance (US.1 / US.3 / AC2 / AC7-8).
     Note: makes one live API call per month — allow a few seconds to respond.
     """
-    import calendar
-    from datetime import date, timedelta
+    from datetime import date
     from app.api.v1.endpoints.price_intelligence import _compute_label
 
     today = date.today()
     monthly_prices = []
 
     for i in range(months):
-        # advance month by month from today
         month_offset = today.month + i
         year = today.year + (month_offset - 1) // 12
         month = ((month_offset - 1) % 12) + 1
@@ -255,8 +253,8 @@ async def get_flight_price_forecast(
         try:
             result = service.search_flights(
                 depart_date=depart_date,
-                from_code=from_id,
-                to_code=to_id,
+                from_code=from_code,
+                to_code=to_code,
                 adults=1,
                 cabin_class=cabin_class,
                 currency=currency,
@@ -268,21 +266,20 @@ async def get_flight_price_forecast(
             min_price = _extract_min_price(result)
             if min_price is not None:
                 db.add(PriceSnapshot(
-                    from_code=from_id,
-                    to_code=to_id,
+                    from_code=from_code,
+                    to_code=to_code,
                     depart_date=depart_date,
                     cabin_class=cabin_class,
                     price=min_price,
                     recorded_at=datetime.utcnow(),
                 ))
-                _check_and_trigger_alerts(db, from_id, to_id, cabin_class, min_price)
+                _check_and_trigger_alerts(db, from_code, to_code, cabin_class, min_price)
             monthly_prices.append({"month": f"{year}-{month:02d}", "cheapest_price": min_price})
         except RapidApiError:
             monthly_prices.append({"month": f"{year}-{month:02d}", "cheapest_price": None})
 
     db.commit()
 
-    # Deal assessment across the 6-month window
     valid_prices = [p["cheapest_price"] for p in monthly_prices if p["cheapest_price"] is not None]
     deal_summary = None
     if len(valid_prices) >= 2:
@@ -305,8 +302,8 @@ async def get_flight_price_forecast(
         }
 
     return {
-        "from_id": from_id,
-        "to_id": to_id,
+        "from_code": from_code,
+        "to_code": to_code,
         "cabin_class": cabin_class,
         "currency": currency,
         "months_scanned": months,
