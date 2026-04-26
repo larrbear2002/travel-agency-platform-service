@@ -166,8 +166,8 @@ class RapidApiClient:
         currency: str = "USD",
     ):
         return self._get(
-            host="booking-com.p.rapidapi.com",
-            path="v1/flights/getPriceCalendar",
+            host="booking-com15.p.rapidapi.com",
+            path="api/v1/flights/getPriceCalendar",
             params={
                 "fromId": from_id,
                 "toId": to_id,
