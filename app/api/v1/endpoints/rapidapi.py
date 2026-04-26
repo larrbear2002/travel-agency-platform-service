@@ -157,19 +157,61 @@ async def get_flight_price_calendar(
     cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
     currency: str = Query("USD"),
     service: RapidApiService = Depends(get_rapidapi_service),
+    db: Session = Depends(get_db),
 ):
     """
-    Returns the cheapest available price for every day in the given month for a route.
-    Use this to render a price trend chart (US.1 / AC2) — data comes live from
-    Booking.com, no prior searches required.
+    Returns the cheapest price for a sample of dates across the requested month.
+    Searches every 7 days (4 data points) using the live Booking.com flight search,
+    then records each price as a snapshot for future trend history (US.1 / AC2).
     """
+    import calendar
+    from datetime import date
+
     try:
-        return service.get_flight_price_calendar(
-            from_id=from_id,
-            to_id=to_id,
-            year_month=year_month,
-            cabin_class=cabin_class,
-            currency=currency,
-        )
-    except RapidApiError as error:
-        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+        year, month = int(year_month[:4]), int(year_month[5:7])
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=422, detail="year_month must be in YYYY-MM format, e.g. 2026-06")
+
+    _, days_in_month = calendar.monthrange(year, month)
+    sample_days = range(1, days_in_month + 1, 7)  # 1, 8, 15, 22, 29
+
+    results = []
+    for day in sample_days:
+        depart_date = date(year, month, day).isoformat()
+        try:
+            result = service.search_flights(
+                depart_date=depart_date,
+                from_code=from_id,
+                to_code=to_id,
+                adults=1,
+                cabin_class=cabin_class,
+                currency=currency,
+                locale="en-gb",
+                page_number=0,
+                order_by="BEST",
+                flight_type="ONEWAY",
+            )
+            min_price = _extract_min_price(result)
+            if min_price is not None:
+                db.add(PriceSnapshot(
+                    from_code=from_id,
+                    to_code=to_id,
+                    depart_date=depart_date,
+                    cabin_class=cabin_class,
+                    price=min_price,
+                    recorded_at=datetime.utcnow(),
+                ))
+                _check_and_trigger_alerts(db, from_id, to_id, cabin_class, min_price)
+            results.append({"date": depart_date, "price": min_price})
+        except RapidApiError:
+            results.append({"date": depart_date, "price": None})
+
+    db.commit()
+    return {
+        "from_id": from_id,
+        "to_id": to_id,
+        "cabin_class": cabin_class,
+        "currency": currency,
+        "year_month": year_month,
+        "prices": results,
+    }
