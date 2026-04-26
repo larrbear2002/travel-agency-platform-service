@@ -13,8 +13,9 @@ class User(Base):
     Last_Name = Column(String, nullable=False)
     Email = Column(String, unique=True, nullable=False, index=True)
     Phone_Number = Column(String)
+    # AC1: tenant isolation — 1 = Agency A, 2 = Agency B, etc.
+    Agency_Id = Column(Integer, nullable=True, index=True)
 
-    # Relationship back to Bookings
     bookings = relationship("Booking", back_populates="user")
 
 class Booking(Base):

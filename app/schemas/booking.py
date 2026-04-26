@@ -15,6 +15,7 @@ class UserCreate(BaseModel):
     Last_Name: str
     Email: EmailStr
     Phone_Number: Optional[str] = None
+    Agency_Id: Optional[int] = None  # AC1: tenant isolation
 
 
 class UserResponse(UserCreate):

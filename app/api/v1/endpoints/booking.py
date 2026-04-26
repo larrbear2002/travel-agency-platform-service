@@ -48,9 +48,20 @@ def create_user(user: UserCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/users/", response_model=List[UserResponse], summary="List all users")
-def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    """Retrieve all registered users (paginated)."""
-    return db.query(User).offset(skip).limit(limit).all()
+def read_users(
+    skip: int = 0,
+    limit: int = 100,
+    agency_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Retrieve all registered users (paginated).
+    Pass `agency_id` to return only users belonging to a specific agency (AC1 — tenant isolation).
+    """
+    q = db.query(User)
+    if agency_id is not None:
+        q = q.filter(User.Agency_Id == agency_id)
+    return q.offset(skip).limit(limit).all()
 
 
 # ==========================================
@@ -59,12 +70,20 @@ def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
 
 # 1. READ: Get all Bookings (with pagination)
 @router.get("/bookings/", response_model=List[BookingResponse], summary="List all bookings")
-def read_bookings(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def read_bookings(
+    skip: int = 0,
+    limit: int = 100,
+    agency_id: int | None = None,
+    db: Session = Depends(get_db),
+):
     """
-    Retrieve a list of bookings. Use 'skip' and 'limit' for pagination.
+    Retrieve a list of bookings. Use `skip` and `limit` for pagination.
+    Pass `agency_id` to return only bookings belonging to users of a specific agency (AC1 — tenant isolation).
     """
-    bookings = db.query(Booking).offset(skip).limit(limit).all()
-    return bookings
+    q = db.query(Booking)
+    if agency_id is not None:
+        q = q.join(Booking.user).filter(User.Agency_Id == agency_id)
+    return q.offset(skip).limit(limit).all()
 
 # 2. READ: Get a specific Booking by ID (with full details)
 @router.get("/bookings/{booking_id}", response_model=BookingDetailResponse, summary="Get booking details")
