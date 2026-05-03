@@ -23,3 +23,13 @@ sqlite3.exe
 sqlite3_analyzer.exe
 sqlite3_rsync.exe
 sqldiff.exe
+
+# Node / Vite frontend
+node_modules/
+dist/
+.vite/
+*.log
+.DS_Store
+
+# Archived nested git (clone baseline)
+.git_baseline_archived/

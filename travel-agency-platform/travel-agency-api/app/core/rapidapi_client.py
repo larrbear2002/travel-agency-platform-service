@@ -1,5 +1,6 @@
 from functools import lru_cache
 import json
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -18,24 +19,19 @@ class RapidApiClient:
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
 
-    def search_locations(self, name: str, locale: str = "en-gb"):
-        """Look up Booking.com dest_ids for a city/place name."""
-        return self._get(
-            host="booking-com.p.rapidapi.com",
-            path="v1/hotels/locations",
-            params={"name": name, "locale": locale},
-        )
-
     def search_attractions(
         self,
         start_date: str,
         end_date: str,
-        dest_id: str,
+        dest_name: str,
+        country_name: str,
         locale: str = "en-gb",
         page_number: int = 0,
         currency: str = "AED",
         order_by: str = "attr_book_score",
     ):
+        dest_id = self._resolve_city_dest_id(dest_name=dest_name, country_name=country_name)
+
         querystring = {
             "start_date": start_date,
             "end_date": end_date,
@@ -56,7 +52,8 @@ class RapidApiClient:
         self,
         page_number: int,
         dest_type: str,
-        dest_id: str,
+        dest_name: str,
+        country_name: str,
         units: str,
         children_number: int,
         locale: str,
@@ -70,6 +67,8 @@ class RapidApiClient:
         categories_filter_ids: str | None = None,
         children_ages: str | None = None,
     ):
+        dest_id = self._resolve_city_dest_id(dest_name=dest_name, country_name=country_name)
+
         querystring = {
             "page_number": str(page_number),
             "dest_type": dest_type,
@@ -98,6 +97,82 @@ class RapidApiClient:
             path="v1/hotels/search",
             params=querystring,
         )
+
+    def _resolve_city_dest_id(self, dest_name: str, country_name: str) -> str:
+        country_code = self._resolve_country_code(country_name)
+        response = self._get(
+            host="booking-com.p.rapidapi.com",
+            path="v1/static/cities",
+            params={"country": country_code, "name": dest_name, "page": "0"},
+        )
+
+        cities: list[dict[str, Any]] = []
+        if isinstance(response, list):
+            cities = [item for item in response if isinstance(item, dict)]
+        elif isinstance(response, dict):
+            result = response.get("result")
+            if isinstance(result, list):
+                cities = [item for item in result if isinstance(item, dict)]
+
+        if not cities:
+            raise RapidApiError(
+                404,
+                f"No city match found for '{dest_name}' in '{country_name}'.",
+            )
+
+        normalized_dest_name = self._normalize(dest_name)
+        for city in cities:
+            city_name = city.get("name")
+            dest_id = city.get("dest_id") or city.get("city_id")
+            if not city_name or not dest_id:
+                continue
+
+            if self._normalize(str(city_name)) == normalized_dest_name:
+                return str(dest_id)
+
+        first_match = cities[0]
+        first_match_dest_id = first_match.get("dest_id") or first_match.get("city_id")
+        if first_match_dest_id:
+            return str(first_match_dest_id)
+
+        raise RapidApiError(
+            404,
+            f"No destination id found for '{dest_name}' in '{country_name}'.",
+        )
+
+    def _resolve_country_code(self, country_name: str) -> str:
+        response = self._get(
+            host="booking-com.p.rapidapi.com",
+            path="v1/static/country",
+            params={},
+        )
+
+        normalized_country_name = self._normalize(country_name)
+        candidates: list[dict[str, Any]] = []
+        if isinstance(response, list):
+            candidates = [item for item in response if isinstance(item, dict)]
+        elif isinstance(response, dict):
+            for value in response.values():
+                if isinstance(value, list):
+                    candidates.extend(item for item in value if isinstance(item, dict))
+
+        for country in candidates:
+            code = country.get("code") or country.get("country")
+            name = country.get("name") or country.get("country_name")
+            if not code or not name:
+                continue
+
+            if self._normalize(str(code)) == normalized_country_name:
+                return str(code).lower()
+
+            if self._normalize(str(name)) == normalized_country_name:
+                return str(code).lower()
+
+        raise RapidApiError(404, f"Country not found: '{country_name}'.")
+
+    @staticmethod
+    def _normalize(value: str) -> str:
+        return " ".join(value.strip().lower().split())
 
     def search_rental_cars(
         self,

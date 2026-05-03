@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
 
 from app.core.database import Base, engine
@@ -15,6 +16,9 @@ def _run_migrations():
         existing_user_cols = {c["name"] for c in inspector.get_columns("users")}
         if "Agency_Id" not in existing_user_cols:
             conn.execute(text('ALTER TABLE users ADD COLUMN "Agency_Id" INTEGER'))
+            conn.commit()
+        if "Password" not in existing_user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN \"Password\" TEXT DEFAULT 'CMPE-131@2026'"))
             conn.commit()
 
 _run_migrations()
@@ -34,6 +38,13 @@ app = FastAPI(
     ),
     version="2.0.0",
     contact={"name": "Travel Agency Platform Team"},
+)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://agenta.local:5173", "http://agentb.local:5173", "http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 app.include_router(api_router, prefix="/api/v1")
 

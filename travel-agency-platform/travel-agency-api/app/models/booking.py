@@ -3,8 +3,15 @@
 # ==========================================
 
 from sqlalchemy import Column, Integer, String, ForeignKey, Date, Float
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import foreign, relationship
 from app.core.database import Base # Import Base from your core config
+
+
+class HotelMaster(Base):
+    __tablename__ = "hotel_master"
+    Hotel_Code = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    Hotel_Name = Column(String, nullable=False)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -13,24 +20,22 @@ class User(Base):
     Last_Name = Column(String, nullable=False)
     Email = Column(String, unique=True, nullable=False, index=True)
     Phone_Number = Column(String)
-    Password = Column(String, nullable=True, default="CMPE-131@2026")
-    # AC1: tenant isolation — 1 = Agency A, 2 = Agency B, etc.
-    Agency_Id = Column(Integer, nullable=True, index=True)
 
+    # Relationship back to Bookings
     bookings = relationship("Booking", back_populates="user")
 
 class Booking(Base):
     __tablename__ = "bookings"
     Booking_Id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     User_Id = Column(Integer, ForeignKey("users.User_ID"), nullable=False)
-    Agent_Id = Column(Integer, nullable=True)
+    Agent_Id = Column(Integer, nullable=True) # Assuming Agents table is separate
     Start_Date = Column(Date, nullable=False)
     End_Date = Column(Date, nullable=False)
 
+    # Relationships
     user = relationship("User", back_populates="bookings")
     hotel_reservations = relationship("HotelReservation", back_populates="booking", cascade="all, delete-orphan")
     flight_reservations = relationship("FlightReservation", back_populates="booking", cascade="all, delete-orphan")
-    attraction_reservations = relationship("AttractionReservation", back_populates="booking", cascade="all, delete-orphan")
 
 
 class HotelReservation(Base):
@@ -45,6 +50,16 @@ class HotelReservation(Base):
     Rate = Column(Float, nullable=True)
 
     booking = relationship("Booking", back_populates="hotel_reservations")
+    hotel = relationship(
+        "HotelMaster",
+        primaryjoin="foreign(HotelReservation.Hotel_Code) == HotelMaster.Hotel_Code",
+        uselist=False,
+        viewonly=True,
+    )
+
+    @property
+    def Hotel_Name(self):
+        return self.hotel.Hotel_Name if self.hotel else None
 
 
 class FlightReservation(Base):
@@ -62,16 +77,4 @@ class FlightReservation(Base):
     Destination_Airport_Code = Column(String, nullable=False)
 
     booking = relationship("Booking", back_populates="flight_reservations")
-
-
-class AttractionReservation(Base):
-    __tablename__ = "attraction_reservations"
-    Reservation_No = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    Booking_Id = Column(Integer, ForeignKey("bookings.Booking_Id"), nullable=False)
-    Attraction_Name = Column(String, nullable=False)
-    Visit_Date = Column(Date, nullable=False)
-    Ticket_Type = Column(String, nullable=True)
-    Rate = Column(Float, nullable=True)
-
-    booking = relationship("Booking", back_populates="attraction_reservations")
 

@@ -30,6 +30,23 @@ def _extract_min_price(data: object) -> float | None:
     return min(prices) if prices else None
 
 
+@router.get("/locations/search", tags=["Search - Locations"], summary="Resolve a city name to Booking.com dest_ids")
+async def search_locations(
+    name: str = Query(..., description="City or place name, e.g. 'New York'"),
+    locale: str = Query("en-gb"),
+    service: RapidApiService = Depends(get_rapidapi_service),
+):
+    """
+    Returns Booking.com location entries (with `dest_id`, `dest_type`, `name`, etc.)
+    for the given query. Use this to convert a city name into a `dest_id` before
+    calling /hotels/search or /attractions/search.
+    """
+    try:
+        return service.search_locations(name=name, locale=locale)
+    except RapidApiError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.detail) from error
+
+
 @router.get("/attractions/search", tags=["Search - Attractions"])
 async def search_attractions(
     start_date: str = Query(..., description="Format: YYYY-MM-DD"),
@@ -221,7 +238,7 @@ async def get_flight_price_calendar(
 async def get_flight_price_forecast(
     from_code: str = Query(..., description="Origin code, e.g. SFO.AIRPORT"),
     to_code: str = Query(..., description="Destination code, e.g. CDG.AIRPORT"),
-    months: int = Query(6, ge=1, le=6, description="How many months ahead to scan (max 6)"),
+    months: int = Query(6, ge=1, le=12, description="How many months ahead to scan (max 12)"),
     cabin_class: str = Query("ECONOMY", description="ECONOMY | BUSINESS | FIRST"),
     currency: str = Query("USD"),
     service: RapidApiService = Depends(get_rapidapi_service),

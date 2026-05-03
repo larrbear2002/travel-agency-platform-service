@@ -4,14 +4,12 @@ class RapidApiService:
     def __init__(self, rapidapi_client: RapidApiClient) -> None:
         self.rapidapi = rapidapi_client
 
-    def search_locations(self, name: str, locale: str = "en-gb"):
-        return self.rapidapi.search_locations(name=name, locale=locale)
-
     def search_attractions(
         self,
         start_date: str,
         end_date: str,
-        dest_id: str,
+        dest_name: str,
+        country_name: str,
         locale: str = "en-gb",
         page_number: int = 0,
         currency: str = "AED",
@@ -20,7 +18,8 @@ class RapidApiService:
         return self.rapidapi.search_attractions(
             start_date=start_date,
             end_date=end_date,
-            dest_id=dest_id,
+            dest_name=dest_name,
+            country_name=country_name,
             locale=locale,
             page_number=page_number,
             currency=currency,
@@ -31,7 +30,8 @@ class RapidApiService:
         self,
         page_number: int,
         dest_type: str,
-        dest_id: str,
+        dest_name: str,
+        country_name: str,
         units: str,
         children_number: int,
         locale: str,
@@ -48,7 +48,8 @@ class RapidApiService:
         return self.rapidapi.search_hotels(
             page_number=page_number,
             dest_type=dest_type,
-            dest_id=dest_id,
+            dest_name=dest_name,
+            country_name=country_name,
             units=units,
             children_number=children_number,
             locale=locale,
