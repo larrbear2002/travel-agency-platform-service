@@ -417,3 +417,84 @@ def delete_attraction_reservation(booking_id: int, reservation_no: int, db: Sess
     db.delete(db_reservation)
     db.commit()
     return None
+
+@router.post(
+    "/bookings/{booking_id}/rebook",
+    response_model=BookingDetailResponse,
+    summary="Rebuild booking with new flights, hotels, and attractions",
+)
+def rebook_booking(
+    booking_id: int,
+    booking_update: BookingUpdate,
+    db: Session = Depends(get_db),
+):
+    # 1. Load booking
+    db_booking = db.query(Booking).filter(Booking.Booking_Id == booking_id).first()
+
+    if db_booking is None:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # 2. Update booking fields (dates, agent, etc.)
+    update_data = booking_update.model_dump(exclude_unset=True)
+
+    for key, value in update_data.items():
+        setattr(db_booking, key, value)
+
+    # 3. Delete old reservations
+    db.query(FlightReservation).filter(
+        FlightReservation.Booking_Id == booking_id
+    ).delete()
+
+    db.query(HotelReservation).filter(
+        HotelReservation.Booking_Id == booking_id
+    ).delete()
+
+    db.query(AttractionReservation).filter(
+        AttractionReservation.Booking_Id == booking_id
+    ).delete()
+
+    db.flush()
+
+    # =====================================================
+    # 4. REGENERATE NEW RESERVATIONS (CORE LOGIC)
+    # =====================================================
+
+    # ✈️ FLIGHT (replace this with your search/price engine later)
+    db.add(FlightReservation(
+        Booking_Id=booking_id,
+        Airline_Code="DL",
+        Flight_Number="200",
+        Departure_Date=db_booking.Start_Date,
+        Departure_Time="09:00:00",
+        Arrive_Date=db_booking.Start_Date,
+        Arrive_Time="12:00:00",
+        Rate=199.99,
+        Origin_Airport_Code="SFO",
+        Destination_Airport_Code="LAX",
+    ))
+
+    # 🏨 HOTEL
+    db.add(HotelReservation(
+        Booking_Id=booking_id,
+        Hotel_Code=1,
+        Check_In_Date=db_booking.Start_Date,
+        Check_In_Time="15:00:00",
+        Check_Out_Date=db_booking.End_Date,
+        Check_Out_Time="11:00:00",
+        Rate=299.99,
+    ))
+
+    # 🎡 ATTRACTION
+    db.add(AttractionReservation(
+        Booking_Id=booking_id,
+        Attraction_Name="City Tour",
+        Visit_Date=db_booking.Start_Date,
+        Ticket_Type="Standard",
+        Rate=59.99,
+    ))
+
+    # 5. Commit changes
+    db.commit()
+    db.refresh(db_booking)
+
+    return db_booking

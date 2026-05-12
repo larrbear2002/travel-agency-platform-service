@@ -188,17 +188,54 @@ export const bookingService = {
   },
 
   async updateFlightReservation(bookingId, reservationNo, fields) {
-    return api.patch(`/bookings/${bookingId}/flight-reservations/${reservationNo}`, fields)
-  },
+  const body = {}
 
+  if (fields.Airline_Code != null) body.Airline_Code = fields.Airline_Code
+  if (fields.Flight_Number != null) body.Flight_Number = fields.Flight_Number
+  if (fields.Departure_Date != null) body.Departure_Date = fields.Departure_Date
+  if (fields.Departure_Time != null) body.Departure_Time = fields.Departure_Time
+  if (fields.Arrive_Date != null) body.Arrive_Date = fields.Arrive_Date
+  if (fields.Arrive_Time != null) body.Arrive_Time = fields.Arrive_Time
+  if (fields.Rate != null) body.Rate = Number(fields.Rate)
+
+  if (fields.Origin_Airport_Code != null) body.Origin_Airport_Code = fields.Origin_Airport_Code
+  if (fields.Destination_Airport_Code != null) body.Destination_Airport_Code = fields.Destination_Airport_Code
+
+  return api.patch(
+    `/bookings/${bookingId}/flight-reservations/${reservationNo}`,
+    body
+  )
+},
+  
   async updateHotelReservation(bookingId, reservationNo, fields) {
-    return api.patch(`/bookings/${bookingId}/hotel-reservations/${reservationNo}`, fields)
-  },
+  const body = {}
 
-  async updateAttractionReservation(bookingId, reservationNo, fields) {
-    return api.patch(`/bookings/${bookingId}/attraction-reservations/${reservationNo}`, fields)
-  },
+  if (fields.Hotel_Code != null) body.Hotel_Code = fields.Hotel_Code
+  if (fields.Check_In_Date != null) body.Check_In_Date = fields.Check_In_Date
+  if (fields.Check_In_Time != null) body.Check_In_Time = fields.Check_In_Time
+  if (fields.Check_Out_Date != null) body.Check_Out_Date = fields.Check_Out_Date
+  if (fields.Check_Out_Time != null) body.Check_Out_Time = fields.Check_Out_Time
+  if (fields.Rate != null) body.Rate = Number(fields.Rate)
 
+  return api.patch(
+    `/bookings/${bookingId}/hotel-reservations/${reservationNo}`,
+    body
+  )
+},
+  
+async updateAttractionReservation(bookingId, reservationNo, fields) {
+  const body = {}
+
+  if (fields.Attraction_Name != null) body.Attraction_Name = fields.Attraction_Name
+  if (fields.Visit_Date != null) body.Visit_Date = fields.Visit_Date
+  if (fields.Ticket_Type != null) body.Ticket_Type = fields.Ticket_Type
+  if (fields.Rate != null) body.Rate = Number(fields.Rate)
+
+  return api.patch(
+    `/bookings/${bookingId}/attraction-reservations/${reservationNo}`,
+    body
+  )
+},
   async deleteBooking(bookingId) {
     return api.delete(`/bookings/${bookingId}`)
   },

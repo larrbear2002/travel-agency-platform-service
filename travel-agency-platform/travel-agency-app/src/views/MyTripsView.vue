@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { tenantConfig } from '../config/tenantConfig.js'
 import { bookingService } from '../services/bookingService.js'
+import { flightService } from '../services/flightService.js'
+import { hotelService } from '../services/hotelService.js'
+import { activityService } from '../services/activityService.js'
 import { useAuth } from '../composables/useAuth.js'
 
 const { userId, userEmail } = useAuth()
@@ -23,6 +26,42 @@ function formatDate(value) {
     month: 'short',
     day: 'numeric',
   })
+}
+
+function normalizeTime(value, fallback = '00:00') {
+  const raw = String(value || '').trim()
+  if (!raw) return `${fallback}:00`
+
+  const clockMatch = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/)
+  if (clockMatch) {
+    const hours = String(Math.min(23, Math.max(0, Number(clockMatch[1])))).padStart(2, '0')
+    const minutes = String(Math.min(59, Math.max(0, Number(clockMatch[2])))).padStart(2, '0')
+    const seconds = String(Math.min(59, Math.max(0, Number(clockMatch[3] || 0)))).padStart(2, '0')
+    return `${hours}:${minutes}:${seconds}`
+  }
+
+  return `${fallback}:00`
+}
+
+function normalizeAirportCode(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)
+}
+
+function splitFlightNumber(value) {
+  const raw = String(value || '').trim().toUpperCase()
+  const match = raw.match(/^([A-Z]{2,3})\s*-?(\d{1,4}[A-Z]?)$/)
+
+  if (!match) {
+    return {
+      airlineCode: '',
+      flightNumber: raw,
+    }
+  }
+
+  return {
+    airlineCode: match[1],
+    flightNumber: match[2],
+  }
 }
 
 const tripCountLabel = computed(() => {
@@ -51,19 +90,31 @@ function startEdit(trip) {
     startDate: trip.startDate,
     endDate: trip.endDate,
     flightReservations: trip.flightReservations.map((f) => ({
-      Reservation_No: f.Reservation_No,
-      Departure_Date: f.Departure_Date,
-      Departure_Time: f.Departure_Time,
-      Arrive_Date: f.Arrive_Date,
-      Arrive_Time: f.Arrive_Time,
-      Rate: f.Rate,
-    })),
-    hotelReservations: trip.hotelReservations.map((h) => ({
-      Reservation_No: h.Reservation_No,
-      Check_In_Date: h.Check_In_Date,
-      Check_Out_Date: h.Check_Out_Date,
-      Rate: h.Rate,
-    })),
+  Reservation_No: f.Reservation_No,
+
+  Airline_Code: f.Airline_Code,
+  Flight_Number: f.Flight_Number,
+  Origin_Airport_Code: f.Origin_Airport_Code,
+  Destination_Airport_Code: f.Destination_Airport_Code,
+
+  Departure_Date: f.Departure_Date,
+  Departure_Time: f.Departure_Time,
+  Arrive_Date: f.Arrive_Date,
+  Arrive_Time: f.Arrive_Time,
+
+  Rate: f.Rate,
+})),    
+     hotelReservations: trip.hotelReservations.map((h) => ({
+  Reservation_No: h.Reservation_No,
+
+  Hotel_Code: h.Hotel_Code,
+  Check_In_Date: h.Check_In_Date,
+  Check_In_Time: h.Check_In_Time,
+  Check_Out_Date: h.Check_Out_Date,
+  Check_Out_Time: h.Check_Out_Time,
+
+  Rate: h.Rate,
+})),
     attractionReservations: (trip.attractionReservations || []).map((a) => ({
       Reservation_No: a.Reservation_No,
       Attraction_Name: a.Attraction_Name,
@@ -73,6 +124,136 @@ function startEdit(trip) {
     })),
   }
   saveError.value[trip.bookingId] = ''
+  alignReservationDates(trip.bookingId)
+}
+
+function alignReservationDates(bookingId) {
+  const state = editState.value[bookingId]
+  if (!state?.startDate) return
+
+  const startDate = state.startDate
+  const endDate = state.endDate || state.startDate
+
+  state.flightReservations.forEach((flight, index) => {
+    const isReturnFlight = state.flightReservations.length > 1 && index === state.flightReservations.length - 1
+    const flightDate = isReturnFlight ? endDate : startDate
+
+    flight.Departure_Date = flightDate
+    flight.Arrive_Date = flightDate
+  })
+
+  state.hotelReservations.forEach((hotel) => {
+    hotel.Check_In_Date = startDate
+    hotel.Check_Out_Date = endDate
+  })
+
+  state.attractionReservations.forEach((attraction) => {
+    attraction.Visit_Date = startDate
+  })
+}
+
+function applyFlightOptionToReservation(reservation, flight, fallbackDate) {
+  const split = splitFlightNumber(flight.flightNumber)
+  const airlineCode = split.airlineCode || normalizeAirportCode(flight.airline).slice(0, 2)
+  const flightDate = flight.date || fallbackDate
+
+  reservation.Airline_Code = airlineCode || reservation.Airline_Code
+  reservation.Flight_Number = split.flightNumber || reservation.Flight_Number
+  reservation.Origin_Airport_Code = normalizeAirportCode(flight.origin) || reservation.Origin_Airport_Code
+  reservation.Destination_Airport_Code = normalizeAirportCode(flight.destination) || reservation.Destination_Airport_Code
+  reservation.Departure_Date = flightDate
+  reservation.Departure_Time = normalizeTime(flight.departureTime, reservation.Departure_Time || '00:00')
+  reservation.Arrive_Date = flightDate
+  reservation.Arrive_Time = normalizeTime(flight.arrivalTime, reservation.Arrive_Time || '00:00')
+  reservation.Rate = Number(flight.totalPrice ?? reservation.Rate ?? 0)
+}
+
+function applyHotelOptionToReservation(reservation, hotel, state) {
+  const hotelCode = Number.parseInt(String(hotel.id ?? reservation.Hotel_Code ?? 0), 10)
+
+  reservation.Hotel_Code = Number.isFinite(hotelCode) ? hotelCode : reservation.Hotel_Code
+  reservation.Check_In_Date = hotel.checkIn || state.startDate
+  reservation.Check_Out_Date = hotel.checkOut || state.endDate || state.startDate
+  reservation.Rate = Number(hotel.totalPrice ?? reservation.Rate ?? 0)
+}
+
+function applyActivityOptionToReservation(reservation, activity, state) {
+  reservation.Attraction_Name = activity.name || reservation.Attraction_Name
+  reservation.Visit_Date = state.startDate
+  reservation.Ticket_Type = activity.category || reservation.Ticket_Type || null
+  reservation.Rate = Number(activity.totalPrice ?? reservation.Rate ?? 0)
+}
+
+async function refreshReservationsForDates(state) {
+  const outboundFlight = state.flightReservations[0]
+  const returnFlight = state.flightReservations.length > 1
+    ? state.flightReservations[state.flightReservations.length - 1]
+    : null
+  const destination = outboundFlight?.Destination_Airport_Code || returnFlight?.Origin_Airport_Code || ''
+
+  const replacementTasks = []
+
+  if (outboundFlight?.Origin_Airport_Code && outboundFlight?.Destination_Airport_Code) {
+    replacementTasks.push((async () => {
+      const flights = await flightService.search({
+        origin: outboundFlight.Origin_Airport_Code,
+        destination: outboundFlight.Destination_Airport_Code,
+        fromDate: state.startDate,
+        toDate: '',
+        adults: 1,
+        children: 0,
+        tripType: 'ONEWAY',
+      })
+      applyFlightOptionToReservation(outboundFlight, flights[0], state.startDate)
+    })())
+  }
+
+  if (returnFlight?.Origin_Airport_Code && returnFlight?.Destination_Airport_Code) {
+    replacementTasks.push((async () => {
+      const flights = await flightService.search({
+        origin: returnFlight.Origin_Airport_Code,
+        destination: returnFlight.Destination_Airport_Code,
+        fromDate: state.endDate || state.startDate,
+        toDate: '',
+        adults: 1,
+        children: 0,
+        tripType: 'ONEWAY',
+      })
+      applyFlightOptionToReservation(returnFlight, flights[0], state.endDate || state.startDate)
+    })())
+  }
+
+  if (destination && state.hotelReservations.length > 0) {
+    replacementTasks.push((async () => {
+      const hotels = await hotelService.search({
+        destination,
+        fromDate: state.startDate,
+        toDate: state.endDate || state.startDate,
+        adults: 1,
+        children: 0,
+      })
+      state.hotelReservations.forEach((hotelReservation, index) => {
+        applyHotelOptionToReservation(hotelReservation, hotels[index] || hotels[0], state)
+      })
+    })())
+  }
+
+  if (destination && state.attractionReservations.length > 0) {
+    replacementTasks.push((async () => {
+      const activities = await activityService.search({
+        destination,
+        fromDate: state.startDate,
+        toDate: state.endDate || state.startDate,
+        adults: 1,
+        children: 0,
+      })
+      state.attractionReservations.forEach((attractionReservation, index) => {
+        applyActivityOptionToReservation(attractionReservation, activities[index] || activities[0], state)
+      })
+    })())
+  }
+
+  await Promise.all(replacementTasks)
 }
 
 function cancelEdit(bookingId) {
@@ -88,28 +269,39 @@ async function saveEdit(trip) {
   saveError.value[trip.bookingId] = ''
 
   try {
+    alignReservationDates(trip.bookingId)
+    await refreshReservationsForDates(state)
+    alignReservationDates(trip.bookingId)
+
     await bookingService.updateBooking(trip.bookingId, {
       startDate: state.startDate,
       endDate: state.endDate,
     })
 
     for (const f of state.flightReservations) {
-      await bookingService.updateFlightReservation(trip.bookingId, f.Reservation_No, {
-        Departure_Date: f.Departure_Date,
-        Departure_Time: f.Departure_Time,
-        Arrive_Date: f.Arrive_Date,
-        Arrive_Time: f.Arrive_Time,
-        Rate: Number(f.Rate) || undefined,
-      })
-    }
+  await bookingService.updateFlightReservation(trip.bookingId, f.Reservation_No, {
+    Airline_Code: f.Airline_Code,
+    Flight_Number: f.Flight_Number,
+    Origin_Airport_Code: f.Origin_Airport_Code,
+    Destination_Airport_Code: f.Destination_Airport_Code,
+    Departure_Date: f.Departure_Date,
+    Departure_Time: f.Departure_Time,
+    Arrive_Date: f.Arrive_Date,
+    Arrive_Time: f.Arrive_Time,
+    Rate: Number(f.Rate) || undefined,
+  })
+}
 
     for (const h of state.hotelReservations) {
-      await bookingService.updateHotelReservation(trip.bookingId, h.Reservation_No, {
-        Check_In_Date: h.Check_In_Date,
-        Check_Out_Date: h.Check_Out_Date,
-        Rate: Number(h.Rate) || undefined,
-      })
-    }
+  await bookingService.updateHotelReservation(trip.bookingId, h.Reservation_No, {
+    Hotel_Code: h.Hotel_Code,
+    Check_In_Date: h.Check_In_Date,
+    Check_In_Time: h.Check_In_Time,
+    Check_Out_Date: h.Check_Out_Date,
+    Check_Out_Time: h.Check_Out_Time,
+    Rate: Number(h.Rate) || undefined,
+  })
+}
 
     for (const a of state.attractionReservations) {
       await bookingService.updateAttractionReservation(trip.bookingId, a.Reservation_No, {
@@ -261,11 +453,23 @@ onMounted(() => {
               <div class="edit-row">
                 <label class="edit-label">
                   Start Date
-                  <input v-model="editState[trip.bookingId].startDate" type="date" class="edit-input" required />
+                  <input
+                    v-model="editState[trip.bookingId].startDate"
+                    type="date"
+                    class="edit-input"
+                    required
+                    @change="alignReservationDates(trip.bookingId)"
+                  />
                 </label>
                 <label class="edit-label">
                   End Date
-                  <input v-model="editState[trip.bookingId].endDate" type="date" class="edit-input" required />
+                  <input
+                    v-model="editState[trip.bookingId].endDate"
+                    type="date"
+                    class="edit-input"
+                    required
+                    @change="alignReservationDates(trip.bookingId)"
+                  />
                 </label>
               </div>
             </fieldset>
